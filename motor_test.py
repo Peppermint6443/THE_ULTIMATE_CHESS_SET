@@ -31,6 +31,8 @@ for x in range(step_count):
 sleep(.5)
 GPIO.output(DIR,CCW)
 
+# add a random comment to test this out
+
 # run the same code as before, but this time backwards
 for x in range(step_count):
     GPIO.output(STEP, GPIO.HIGH)
