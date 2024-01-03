@@ -32,6 +32,7 @@ sleep(.5)
 GPIO.output(DIR,CCW)
 
 # add a random comment to test this out
+# add a second random comment, I think I got it figured out this time... I needed to pull the updated version of the repository to this branch, otherwise it was editing what the repository contained when the project first started
 
 # run the same code as before, but this time backwards
 for x in range(step_count):
