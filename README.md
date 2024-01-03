@@ -8,3 +8,7 @@ Main system includes an electromagnet, controlled by a CoreXY 3D printer setup, 
 Things to be figured out: capabilities of the electromagnet, piece recognition
 
 To be added: how to use GitLab to edit and share code;
+
+
+
+SSH key phrase: "This is for SIOY"
