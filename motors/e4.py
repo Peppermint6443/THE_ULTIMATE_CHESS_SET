@@ -57,13 +57,13 @@ import tkinter as tk
 # Function to send commands to the robot based on button clicks
 def send_command(direction):
     if direction == "Forward":
-        move = coord(0,1)
+        move = coord([0,1])
     elif direction == "Backward":
-        move = coord(0,-1)
+        move = coord([0,-1])
     elif direction == "Left":
-        move = coord(-1,0)
+        move = coord([-1,0])
     elif direction =="Right":
-        move = coord(1,0)
+        move = coord([1,0])
     
     if move[0] > 0:
         GPIO.output(DIR_1,GPIO.HIGH)
@@ -78,21 +78,23 @@ def send_command(direction):
     SC_1 = move[0] * SPR
     delay = .0001
     # this is the code to complete one full turn 
-    for x in range(SC_1):
+    for x in range(abs(SC_1)):
         GPIO.output(STEP_1, GPIO.HIGH)
-        sleep(delay)
-        GPIO.output(STEP_1, GPIO.LOW)
-        sleep(delay)
-
-    # move right motor
-    SC_2 = move[1] * SPR
-    delay = .0001
-    # this is the code to complete one full turn 
-    for x in range(SC_2):
         GPIO.output(STEP_2, GPIO.HIGH)
         sleep(delay)
-        GPIO.output(STEP_2, GPIO.LOW)
+        GPIO.output(STEP_1, GPIO.LOW)
+        GPIO.output(STEP_2,GPIO.LOW)
         sleep(delay)
+
+#    # move right motor
+ #   SC_2 = move[1] * SPR
+  #  delay = .0001
+    # this is the code to complete one full turn 
+   # for x in range(abs(SC_2)):
+    #    GPIO.output(STEP_2, GPIO.HIGH)
+     #   sleep(delay)
+      #  GPIO.output(STEP_2, GPIO.LOW)
+       # sleep(delay)
 
 # Create the main GUI window
 root = tk.Tk()
@@ -112,3 +114,4 @@ create_button("Right")
 # Start the GUI event loop
 root.mainloop()
 
+GPIO.cleanup()
