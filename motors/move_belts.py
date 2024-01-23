@@ -24,6 +24,14 @@ GPIO.output(STEP, GPIO.LOW)
 # reactivate
 GPIO.output(EN,GPIO.LOW)
 
+# functions to move the gantry
+def coord(xy):
+    
+    left = np.array([])
+    right = np.array([])
+    instructions = np.array([left,right])
+    return instructions
+
 
 # # the stuff for creating a window that will create buttons
 
@@ -31,8 +39,14 @@ import tkinter as tk
 
 # Function to send commands to the robot based on button clicks
 def send_command(direction):
-    # Replace this with your actual code to control the robot
-    print(f"Robot moving {direction}")
+    if direction == "Forward":
+        print('forward')
+    elif direction == "Backward":
+        print('backward')
+    elif direction == "Left":
+        print('left')
+    elif direction =="Right":
+        print('right')
 
 # Create the main GUI window
 root = tk.Tk()
