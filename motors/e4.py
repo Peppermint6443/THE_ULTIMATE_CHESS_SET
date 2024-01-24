@@ -88,6 +88,8 @@ def send_command(direction):
 
 # Hello there eThAn, this is a GitHub test
 
+# hello there Ja-red, this is a second github test!
+
 #    # move right motor
  #   SC_2 = move[1] * SPR
   #  delay = .0001
