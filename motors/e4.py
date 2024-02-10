@@ -86,10 +86,6 @@ def send_command(direction):
         GPIO.output(STEP_2,GPIO.LOW)
         sleep(delay)
 
-# Hello there eThAn, this is a GitHub test
-
-# hello there Ja-red, this is a second github test!
-
 #    # move right motor
  #   SC_2 = move[1] * SPR
   #  delay = .0001
