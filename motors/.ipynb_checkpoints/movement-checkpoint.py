@@ -22,7 +22,6 @@ class realBoard():
     # and any dimension in "steps" works in the coreXY plane.
     ################
 
-    magnetState = False #False means off, True means on
     currentX = None #inches
     currentY = None #inches
     zeroX    = None
@@ -38,12 +37,20 @@ class realBoard():
     STEP_2 = 27      # RaspPi pin attached to STEP on motor 2
     EN_2 = 22        # RaspPi pin attached to EN on motor 2
 
+    # Configure Limit Switch pins
+    xSwitchPin = 21
+    ySwitchPin = 20
+
+    # Configure electromagnet pin
+    magPin = 12
+    
     #----- General Variables
     CW  = GPIO.HIGH  # Clockwise rotation
     CCW = GPIO.LOW   # Counter-clockwise rotation
     
     
-    def __init__(self, origin, squareSize = 1.75, beltPitch = 2, teethPerRev = 20, stepsPerRev = 1600):
+    def __init__(self, origin, squareSize = 1.75, beltPitch = 2, \
+        teethPerRev = 20, stepsPerRev = 1600, motDelay = 0.0001):
         """
         Initializes a real board object. 
         Inputs: 
@@ -52,11 +59,15 @@ class realBoard():
             beltPitch = distance between belt teeth (in MILLIMETERS)
             teethPerRev = number of teeth per full motor revolution
             stepsPerRev = number of steps the motor makes per revolution
+            motDelay = # of seconds to wait between motor impulses.
+                - Reducing this number increases motor speed, but also increases
+                  the risk of skipping steps.
 
         Sets the dimensions of the board so that the chessToReal function can do its job
         """
         s = self
         s.squareSize = squareSize #inches
+        s.motDelay   = motDelay
         
         #----- Set Dimensions
         mmPerRev = beltPitch*teethPerRev
@@ -101,6 +112,10 @@ class realBoard():
         GPIO.output(s.EN_1,GPIO.LOW)
         GPIO.output(s.EN_2,GPIO.LOW)
 
+        #Configure limit switches
+        s.xLimitSwitch = Button(s.xSwitchPin)
+        s.yLimitSwitch = Button(s.ySwitchPin)
+        
         #----- Calibration
         self.calibrate()
         
@@ -109,21 +124,22 @@ class realBoard():
         Calibrates the x axis, then the y axis.
         """
         s = self
-        while s.zeroY == None:
-            # Calibrate y first
-            s.moveSteps(s.coreXY(0,-1))
-            if s.limitSwitchIsPressed("y"):
-                s.zeroY = 0
-                s.currentY = 0
-        while s.zeroX ==  None:
-            # Calibrate x second
-            s.moveSteps(s.coreXY(-1,0))
-            if s.limitSwitchIsPressed("x"):
-                s.zeroX = 0
-                s.currentX = 0
+        
+        # Calibrate y first
+        while s.yLimitSwitch.is_pressed == False:
+            
+            s.moveSteps(s.coreXY((0,-1)))
+        s.zeroY = 0
+        s.currentY = 0
+        
+        # Calibrate x second
+        while s.xLimitSwitch.is_pressed == False:
+            s.moveSteps(s.coreXY((-1,0)))
+        s.zeroX = 0
+        s.currentX = 0
 
-        #Move Gantry to the origin
-        s.moveInches(s.xOrigin, s.yOrigin)
+        #Move Gantry to the center of square a1
+        s.moveInches(s.getSquareCoords(0))
     
     def moveSteps(self, coords):
         """
@@ -135,10 +151,12 @@ class realBoard():
                 - ^^ These can be computed using the coreXY function
 
         NOTE: this function can only move along cartesian x or y lines or along diagonals.
-        WARNING: there is no error checking written into this function to ensure no boundary crossing. Normally, the moveInches function should be called instead (this has error checking).
+        WARNING: there is no error checking or position updating written into this function to ensure no boundary crossing. 
+            - Normally, the moveInches function should be called instead (this has error checking).
         """
         s = self
 
+        lSteps, rSteps = int(coords[0]), int(coords[1])
         #----- Set driver output pins
         if lSteps > 0:
             GPIO.output(s.DIR_1, s.CW)
@@ -150,40 +168,39 @@ class realBoard():
             GPIO.output(s.DIR_2, s.CCW)
         
         #----- Make move
-        lSteps, rSteps = int(coords[0]), int(coords[1])
         if lSteps == 0:
             if rSteps == 0:
                 #Neither moves
                 return None
             else: 
                 #Right moves, left doesn't
-                for step in range(abs(coords[1])):
+                for step in range(abs(rSteps)):
                     GPIO.output(s.STEP_2, GPIO.HIGH)
-                    sleep(0.0001)
+                    sleep(s.motDelay)
                     GPIO.output(s.STEP_2, GPIO.LOW)
-                    sleep(0.0001)
+                    sleep(s.motDelay)
         elif rSteps == 0: 
             #Left moves, right doesn't
-            for step in range(abs(coords[0])):
+            for step in range(abs(lSteps)):
                 GPIO.output(s.STEP_1, GPIO.HIGH)
-                sleep(0.0001)
+                sleep(s.motDelay)
                 GPIO.output(s.STEP_1, GPIO.LOW)
-                sleep(0.0001)
-        elif abs(lSteps) != abs(lSteps):
+                sleep(s.motDelay)
+        elif abs(lSteps) != abs(rSteps):
             #Check if both have the same number of steps before simultaneous move
             raise InvalidMoveError(f"The function 'moveGantry' can only perform moves along the cartesian x or y directions, or along diagonals. The move ({delx, dely}) is invalid.")
             return None
         else:
             #Make simultaneous move
-            for step in range(abs(coords[0])):
+            for step in range(abs(lSteps)):
                 GPIO.output(s.STEP_1, GPIO.HIGH)
                 GPIO.output(s.STEP_2, GPIO.HIGH)
-                sleep(0.0001)
+                sleep(s.motDelay)
                 GPIO.output(s.STEP_1, GPIO.LOW)
                 GPIO.output(s.STEP_2, GPIO.LOW)
-                sleep(0.0001)
+                sleep(s.motDelay)
 
-    def coreXY(xy):
+    def coreXY(self, xy):
         """
         Translates coordinates from real world to coreXY motor inputs. 
         Inputs:
@@ -201,33 +218,17 @@ class realBoard():
             coreXY must be called as coreXY(sqrt(2)*L, sqrt(2)*L) 
         """
         x, y = xy #steps
-        m1 = x - y
-        m2 = x + y
-        return np.array([m1,y2])
-
-    def limitSwitchIsPressed(self, switch):
-        # Reference about Pi's buttons: https://gpiozero.readthedocs.io/en/stable/recipes.html#button
-        xSwitchPin = 21
-        ySwitchPin = 20
-        
-        if switch == "x":
-            button = Button(xSwitchPin)
-        elif switch == "y":
-            button = Button(ySwitchPin)
-        else:
-            raise SwitchError(f"Switch Direction {switch} is invalid. Valid values are 'x' and 'y'. ")
-
-        if button.is_pressed:
-            return True
-        else: 
-            return False
+        m1 = -x - y
+        m2 = -x + y
+        return np.array([m1,m2])
     
-    def moveInches(self, delx, dely):
+    def moveInches(self, deltas):
         """ 
         Moves the gantry. 
         Inputs:
-            delx: inches in the x direction to move
-            dely: inches in the y direction to move
+            deltas: 2 element tuple with:
+            deltas[0]: delta x. inches in the x direction to move
+            deltas[1]: delta y: inches in the y direction to move
 
         NOTE: this function can only move along cartesian x or y lines or along diagonals.
         """
@@ -237,17 +238,20 @@ class realBoard():
         
         s = self
 
+        delx = deltas[0]
+        dely = deltas[1]
+
         #----- Confirm move remains in boundaries
         newX = s.currentX + delx
         newY = s.currentY + dely
         b1 = newX < s.xHiBound
-        b2 = newY < s.xHiBound
+        b2 = newY < s.yHiBound
         b3 = newX > s.xLoBound
         b4 = newY > s.yLoBound
         if b1 and b2 and b3 and b4:
             #Move gantry
-            xStepsCoreXY = delx*sqrt(2)*s.stepsPerInch
-            yStepsCoreXY = dely*sqrt(2)*s.stepsPerInch
+            xStepsCoreXY = delx*np.sqrt(2)*s.stepsPerInch
+            yStepsCoreXY = dely*np.sqrt(2)*s.stepsPerInch
             move = s.coreXY((xStepsCoreXY, yStepsCoreXY))
             s.moveSteps(move)
 
@@ -261,18 +265,60 @@ class realBoard():
             Attempted delX = {delx}
             Attempted delY = {dely}""")
 
-    def chesstoReal(self, square):
+    def turnMagnetOn(self):
+        GPIO.output(s.magPin, GPIO.HIGH)
+
+    def turnMagnetOff(self):
+        GPIO.output(s.magPin, GPIO.HIGH)
+    
+    def getSquareCoords(self, square):
         """
         Translates a chess move to real coordinates (units: steps from the origin)
         Inputs: 
             square: numerical index of piece's square (0-63)
         Outputs:
-            coord: tuple with the coordinates of the center of the square (units: steps from the origin) 
+            coord: tuple with the absolute coordinates of the center of the square (units: inches) 
+                - Ranks and columns range from 0 to 6
+                - Rank 0 = 1, Rank 1 = 2, etc.
+                - File 0 = a, File 1 = b, etc.
         """
-        rank = (square // 8) + 1
-        col  = (square %  8) + 1
+        #JWP TO DO: handle capture bank. Easiest would be use negative numbers
+        rank = (square // 8)
+        col  = (square %  8)
 
-        x = (col  - 0.5)*self.stepsPerSquare
-        y = (rank - 0.5)*self.stepsPerSquare
+        x = (col  + 0.5)*self.squareSize + self.xOrigin #inches
+        y = (rank + 0.5)*self.squareSize + self.yOrigin #inches
         return (int(x), int(y))
-    
+
+    def moveToSquare(self, square):
+        """
+        Moves the gantry to the inputted square (0-63)
+        """
+        self = s
+        coords = s.getSquareCoords(square)
+
+        delx = coords[0] - s.currentX
+        dely = coords[1] - s.currentY
+        deltas = (delx, dely)
+        s.moveInches(deltas)
+
+    def movePiece(self, startSquare, endSquare, isCapture, capturedPiece):
+        """
+        Moves a piece based off the following inputs: 
+            startSquare    = starting square (0-63)
+            endSquare      = ending square   (0-63)
+            isCapture      = notes that the move involves capturing a piece
+            capturedPiece  = which piece was captured, for correct storage in the piece bank
+        """
+        #if isCapture:
+        #    s.movePiece(endSquare,
+        # Need to create piece bank
+        s = self
+        # Move to starting square
+        s.moveToSquare(startSquare)
+        # Turn on electromagnet
+        s.turnMagnetOn()
+        # Move to end square
+        s.moveToSquare(endSquare)
+        # Turn off electromagnet
+        s.turnMagnetOff()

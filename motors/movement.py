@@ -22,7 +22,6 @@ class realBoard():
     # and any dimension in "steps" works in the coreXY plane.
     ################
 
-    magnetState = False #False means off, True means on
     currentX = None #inches
     currentY = None #inches
     zeroX    = None
@@ -38,6 +37,13 @@ class realBoard():
     STEP_2 = 27      # RaspPi pin attached to STEP on motor 2
     EN_2 = 22        # RaspPi pin attached to EN on motor 2
 
+    # Configure Limit Switch pins
+    xSwitchPin = 21
+    ySwitchPin = 20
+
+    # Configure electromagnet pin
+    magPin = 12
+    
     #----- General Variables
     CW  = GPIO.HIGH  # Clockwise rotation
     CCW = GPIO.LOW   # Counter-clockwise rotation
@@ -105,13 +111,10 @@ class realBoard():
         # Reactivate
         GPIO.output(s.EN_1,GPIO.LOW)
         GPIO.output(s.EN_2,GPIO.LOW)
-        
-        # Configure Limit Switch pins
-        xSwitchPin = 21
-        ySwitchPin = 20
-        
-        s.xLimitSwitch = Button(xSwitchPin)
-        s.yLimitSwitch = Button(ySwitchPin)
+
+        #Configure limit switches
+        s.xLimitSwitch = Button(s.xSwitchPin)
+        s.yLimitSwitch = Button(s.ySwitchPin)
         
         #----- Calibration
         self.calibrate()
@@ -135,8 +138,8 @@ class realBoard():
         s.zeroX = 0
         s.currentX = 0
 
-        #Move Gantry to the origin
-        s.moveInches(s.xOrigin, s.yOrigin)
+        #Move Gantry to the center of square a1
+        s.moveInches(s.getSquareCoords(0))
     
     def moveSteps(self, coords):
         """
@@ -148,7 +151,8 @@ class realBoard():
                 - ^^ These can be computed using the coreXY function
 
         NOTE: this function can only move along cartesian x or y lines or along diagonals.
-        WARNING: there is no error checking written into this function to ensure no boundary crossing. Normally, the moveInches function should be called instead (this has error checking).
+        WARNING: there is no error checking or position updating written into this function to ensure no boundary crossing. 
+            - Normally, the moveInches function should be called instead (this has error checking).
         """
         s = self
 
@@ -218,12 +222,13 @@ class realBoard():
         m2 = -x + y
         return np.array([m1,m2])
     
-    def moveInches(self, delx, dely):
+    def moveInches(self, deltas):
         """ 
         Moves the gantry. 
         Inputs:
-            delx: inches in the x direction to move
-            dely: inches in the y direction to move
+            deltas: 2 element tuple with:
+            deltas[0]: delta x. inches in the x direction to move
+            deltas[1]: delta y: inches in the y direction to move
 
         NOTE: this function can only move along cartesian x or y lines or along diagonals.
         """
@@ -232,6 +237,9 @@ class realBoard():
             #2) updating self.currentX and self.currentY
         
         s = self
+
+        delx = deltas[0]
+        dely = deltas[1]
 
         #----- Confirm move remains in boundaries
         newX = s.currentX + delx
@@ -257,18 +265,60 @@ class realBoard():
             Attempted delX = {delx}
             Attempted delY = {dely}""")
 
-    def chesstoReal(self, square):
+    def turnMagnetOn(self):
+        GPIO.output(s.magPin, GPIO.HIGH)
+
+    def turnMagnetOff(self):
+        GPIO.output(s.magPin, GPIO.HIGH)
+    
+    def getSquareCoords(self, square):
         """
         Translates a chess move to real coordinates (units: steps from the origin)
         Inputs: 
             square: numerical index of piece's square (0-63)
         Outputs:
-            coord: tuple with the coordinates of the center of the square (units: steps from the origin) 
+            coord: tuple with the absolute coordinates of the center of the square (units: inches) 
+                - Ranks and columns range from 0 to 6
+                - Rank 0 = 1, Rank 1 = 2, etc.
+                - File 0 = a, File 1 = b, etc.
         """
-        rank = (square // 8) + 1
-        col  = (square %  8) + 1
+        #JWP TO DO: handle capture bank. Easiest would be use negative numbers
+        rank = (square // 8)
+        col  = (square %  8)
 
-        x = (col  - 0.5)*self.stepsPerSquare
-        y = (rank - 0.5)*self.stepsPerSquare
+        x = (col  + 0.5)*self.squareSize + self.xOrigin #inches
+        y = (rank + 0.5)*self.squareSize + self.yOrigin #inches
         return (int(x), int(y))
-    
+
+    def moveToSquare(self, square):
+        """
+        Moves the gantry to the inputted square (0-63)
+        """
+        self = s
+        coords = s.getSquareCoords(square)
+
+        delx = coords[0] - s.currentX
+        dely = coords[1] - s.currentY
+        deltas = (delx, dely)
+        s.moveInches(deltas)
+
+    def movePiece(self, startSquare, endSquare, isCapture, capturedPiece):
+        """
+        Moves a piece based off the following inputs: 
+            startSquare    = starting square (0-63)
+            endSquare      = ending square   (0-63)
+            isCapture      = notes that the move involves capturing a piece
+            capturedPiece  = which piece was captured, for correct storage in the piece bank
+        """
+        #if isCapture:
+        #    s.movePiece(endSquare,
+        # Need to create piece bank
+        s = self
+        # Move to starting square
+        s.moveToSquare(startSquare)
+        # Turn on electromagnet
+        s.turnMagnetOn()
+        # Move to end square
+        s.moveToSquare(endSquare)
+        # Turn off electromagnet
+        s.turnMagnetOff()
