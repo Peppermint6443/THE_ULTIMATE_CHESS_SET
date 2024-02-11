@@ -43,7 +43,8 @@ class realBoard():
     CCW = GPIO.LOW   # Counter-clockwise rotation
     
     
-    def __init__(self, origin, squareSize = 1.75, beltPitch = 2, teethPerRev = 20, stepsPerRev = 1600):
+    def __init__(self, origin, squareSize = 1.75, beltPitch = 2, \
+        teethPerRev = 20, stepsPerRev = 1600, motDelay = 0.0001):
         """
         Initializes a real board object. 
         Inputs: 
@@ -52,11 +53,15 @@ class realBoard():
             beltPitch = distance between belt teeth (in MILLIMETERS)
             teethPerRev = number of teeth per full motor revolution
             stepsPerRev = number of steps the motor makes per revolution
+            motDelay = # of seconds to wait between motor impulses.
+                - Reducing this number increases motor speed, but also increases
+                  the risk of skipping steps.
 
         Sets the dimensions of the board so that the chessToReal function can do its job
         """
         s = self
         s.squareSize = squareSize #inches
+        s.motDelay   = motDelay
         
         #----- Set Dimensions
         mmPerRev = beltPitch*teethPerRev
@@ -100,7 +105,14 @@ class realBoard():
         # Reactivate
         GPIO.output(s.EN_1,GPIO.LOW)
         GPIO.output(s.EN_2,GPIO.LOW)
-
+        
+        # Configure Limit Switch pins
+        xSwitchPin = 21
+        ySwitchPin = 20
+        
+        s.xLimitSwitch = Button(xSwitchPin)
+        s.yLimitSwitch = Button(ySwitchPin)
+        
         #----- Calibration
         self.calibrate()
         
@@ -109,18 +121,19 @@ class realBoard():
         Calibrates the x axis, then the y axis.
         """
         s = self
-        while s.zeroY == None:
-            # Calibrate y first
-            s.moveSteps(s.coreXY(0,-1))
-            if s.limitSwitchIsPressed("y"):
-                s.zeroY = 0
-                s.currentY = 0
-        while s.zeroX ==  None:
-            # Calibrate x second
-            s.moveSteps(s.coreXY(-1,0))
-            if s.limitSwitchIsPressed("x"):
-                s.zeroX = 0
-                s.currentX = 0
+        
+        # Calibrate y first
+        while s.yLimitSwitch.is_pressed == False:
+            
+            s.moveSteps(s.coreXY((0,-1)))
+        s.zeroY = 0
+        s.currentY = 0
+        
+        # Calibrate x second
+        while s.xLimitSwitch.is_pressed == False:
+            s.moveSteps(s.coreXY((-1,0)))
+        s.zeroX = 0
+        s.currentX = 0
 
         #Move Gantry to the origin
         s.moveInches(s.xOrigin, s.yOrigin)
@@ -139,6 +152,7 @@ class realBoard():
         """
         s = self
 
+        lSteps, rSteps = int(coords[0]), int(coords[1])
         #----- Set driver output pins
         if lSteps > 0:
             GPIO.output(s.DIR_1, s.CW)
@@ -150,40 +164,39 @@ class realBoard():
             GPIO.output(s.DIR_2, s.CCW)
         
         #----- Make move
-        lSteps, rSteps = int(coords[0]), int(coords[1])
         if lSteps == 0:
             if rSteps == 0:
                 #Neither moves
                 return None
             else: 
                 #Right moves, left doesn't
-                for step in range(abs(coords[1])):
+                for step in range(abs(rSteps)):
                     GPIO.output(s.STEP_2, GPIO.HIGH)
-                    sleep(0.0001)
+                    sleep(s.motDelay)
                     GPIO.output(s.STEP_2, GPIO.LOW)
-                    sleep(0.0001)
+                    sleep(s.motDelay)
         elif rSteps == 0: 
             #Left moves, right doesn't
-            for step in range(abs(coords[0])):
+            for step in range(abs(lSteps)):
                 GPIO.output(s.STEP_1, GPIO.HIGH)
-                sleep(0.0001)
+                sleep(s.motDelay)
                 GPIO.output(s.STEP_1, GPIO.LOW)
-                sleep(0.0001)
-        elif abs(lSteps) != abs(lSteps):
+                sleep(s.motDelay)
+        elif abs(lSteps) != abs(rSteps):
             #Check if both have the same number of steps before simultaneous move
             raise InvalidMoveError(f"The function 'moveGantry' can only perform moves along the cartesian x or y directions, or along diagonals. The move ({delx, dely}) is invalid.")
             return None
         else:
             #Make simultaneous move
-            for step in range(abs(coords[0])):
+            for step in range(abs(lSteps)):
                 GPIO.output(s.STEP_1, GPIO.HIGH)
                 GPIO.output(s.STEP_2, GPIO.HIGH)
-                sleep(0.0001)
+                sleep(s.motDelay)
                 GPIO.output(s.STEP_1, GPIO.LOW)
                 GPIO.output(s.STEP_2, GPIO.LOW)
-                sleep(0.0001)
+                sleep(s.motDelay)
 
-    def coreXY(xy):
+    def coreXY(self, xy):
         """
         Translates coordinates from real world to coreXY motor inputs. 
         Inputs:
@@ -201,26 +214,9 @@ class realBoard():
             coreXY must be called as coreXY(sqrt(2)*L, sqrt(2)*L) 
         """
         x, y = xy #steps
-        m1 = x - y
-        m2 = x + y
-        return np.array([m1,y2])
-
-    def limitSwitchIsPressed(self, switch):
-        # Reference about Pi's buttons: https://gpiozero.readthedocs.io/en/stable/recipes.html#button
-        xSwitchPin = 21
-        ySwitchPin = 20
-        
-        if switch == "x":
-            button = Button(xSwitchPin)
-        elif switch == "y":
-            button = Button(ySwitchPin)
-        else:
-            raise SwitchError(f"Switch Direction {switch} is invalid. Valid values are 'x' and 'y'. ")
-
-        if button.is_pressed:
-            return True
-        else: 
-            return False
+        m1 = -x - y
+        m2 = -x + y
+        return np.array([m1,m2])
     
     def moveInches(self, delx, dely):
         """ 
@@ -241,13 +237,13 @@ class realBoard():
         newX = s.currentX + delx
         newY = s.currentY + dely
         b1 = newX < s.xHiBound
-        b2 = newY < s.xHiBound
+        b2 = newY < s.yHiBound
         b3 = newX > s.xLoBound
         b4 = newY > s.yLoBound
         if b1 and b2 and b3 and b4:
             #Move gantry
-            xStepsCoreXY = delx*sqrt(2)*s.stepsPerInch
-            yStepsCoreXY = dely*sqrt(2)*s.stepsPerInch
+            xStepsCoreXY = delx*np.sqrt(2)*s.stepsPerInch
+            yStepsCoreXY = dely*np.sqrt(2)*s.stepsPerInch
             move = s.coreXY((xStepsCoreXY, yStepsCoreXY))
             s.moveSteps(move)
 
