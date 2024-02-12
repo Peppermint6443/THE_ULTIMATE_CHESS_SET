@@ -170,7 +170,14 @@ class ChessGameGUI:
             self.canvas.delete("capture")
             self.update_board()
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    game = ChessGameGUI(root)
-    root.mainloop()
+#def main():
+#    return None
+
+#if __name__ == "__main__":
+    #root = tk.Tk()
+    #game = ChessGameGUI(root)
+    #root.mainloop()
+
+root = tk.Tk()
+game = ChessGameGUI(root)
+root.mainloop()
