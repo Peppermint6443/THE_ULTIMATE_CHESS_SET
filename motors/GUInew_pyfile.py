@@ -27,8 +27,8 @@ class ChessGameGUI:
         self.canvas.bind("<ButtonRelease-1>", self.handle_release)
 
         # Coordinates of the origin based on the zero position
-        origin = (4,4) # x,y inches
-        self.realBoard = mvt.realBoard((4,4))
+        origin = (1,2+9/16) # x,y inches
+        self.realBoard = mvt.realBoard(origin)
     
     def create_extra_images(self):
         def rgba(a,b,c,d):
@@ -154,16 +154,21 @@ class ChessGameGUI:
             rank = 7 - (event.y // self.square_size)
             end_pos = chess.square(file, rank)
             move = chess.Move(self.start_pos, end_pos)
+            movingPiece = self.board.piece_at(self.start_pos).symbol()
             isCapture = self.board.is_capture(move)
             if move in self.board.legal_moves:
                 #print(self.start_pos, end_pos) #DEBUGGING
                 #print(isCapture) #DEBUGGING
                 #print(move)
-                self.board.push(move)
+                print(movingPiece)
                 capturedPiece = None
                 if (isCapture):
                     capturedPiece = self.board.piece_at(end_pos).symbol()
-                self.realBoard.movePiece(self.start_pos, end_pos, isCapture, capturedPiece)
+                    
+                # Move piece on digital board, then physical board
+                self.board.push(move)
+                print("Debugging:", self.start_pos, end_pos, isCapture, capturedPiece)
+                self.realBoard.movePiece(self.start_pos, end_pos, movingPiece, isCapture, capturedPiece)
             self.start_pos = None
             self.dragged_piece = None
             self.canvas.delete("dots")
@@ -179,5 +184,6 @@ class ChessGameGUI:
     #root.mainloop()
 
 root = tk.Tk()
+root.title("Pawn DIYnamics")
 game = ChessGameGUI(root)
 root.mainloop()

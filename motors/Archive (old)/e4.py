@@ -80,10 +80,10 @@ def send_command(direction):
     # this is the code to complete one full turn 
     for x in range(abs(SC_1)):
         GPIO.output(STEP_1, GPIO.HIGH)
-        GPIO.output(STEP_2, GPIO.HIGH)
+        #GPIO.output(STEP_2, GPIO.HIGH)
         sleep(delay)
         GPIO.output(STEP_1, GPIO.LOW)
-        GPIO.output(STEP_2,GPIO.LOW)
+        #GPIO.output(STEP_2,GPIO.LOW)
         sleep(delay)
 
 #    # move right motor
