@@ -355,6 +355,7 @@ class realBoard():
         
             # Move to starting square
             s.moveToSquare(startSquare)
+            sleep(0.15)
             
             #To keep the magnet on while moving the gantry, we use threading:
             pieceIsMoving = True
@@ -382,7 +383,7 @@ class realBoard():
                             #move dely
                             s.moveInches((0,dely))
                             #move 1.2 squre x
-                            s.moveInches((delx/2))
+                            s.moveInches((delx/2,0))
                         else:
                             raise RuntimeError("Knight movement error")
                             
@@ -392,7 +393,7 @@ class realBoard():
                     pieceIsMoving = False
                     magnet_thread.join()
                     s.turnMagnetOff()
-            except KeyboardInterupt:
+            except KeyboardInterrupt:
                 s.turnMagnetOff()
                 print("Movement aborted")
                 GPIO.cleanup()
