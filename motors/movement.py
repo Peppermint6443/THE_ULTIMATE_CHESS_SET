@@ -2,6 +2,7 @@ from gpiozero import Button
 from time import sleep
 import RPi.GPIO as GPIO
 import numpy as np
+import threading
 
 class realBoard():
     ################
@@ -42,7 +43,7 @@ class realBoard():
     ySwitchPin = 20
 
     # Configure electromagnet pin
-    magPin = 12
+    magPin = 26
     
     #----- General Variables
     CW  = GPIO.HIGH  # Clockwise rotation
@@ -67,13 +68,15 @@ class realBoard():
         """
         s = self
         s.squareSize = squareSize #inches
+        motDelay = 0.00025
         s.motDelay   = motDelay
         
         #----- Set Dimensions
         mmPerRev = beltPitch*teethPerRev
         inchPerRev = mmPerRev/25.4 #This is an exception: this is inches in the CoreXY plane
-        s.stepsPerInch = int(stepsPerRev/inchPerRev)
+        s.stepsPerInch = stepsPerRev/inchPerRev
         s.inchPerStep = 1/s.stepsPerInch
+        print(s.inchPerStep*25.4*1600, "mm per revolution")
 
         s.xOrigin = origin[0] #inches
         s.yOrigin = origin[1] #inches
@@ -85,7 +88,7 @@ class realBoard():
         s.yLoBound = s.yOrigin-s.squareSize*1  + tolerance #inches
         s.yHiBound = s.yOrigin+s.squareSize*9  - tolerance #inches
 
-        #----- Initialize driver pins
+        #----- Set Raspberry Pi pins to GPIO ready
         GPIO.setmode(GPIO.BCM)
 
         # Open encode mode
@@ -115,6 +118,9 @@ class realBoard():
         #Configure limit switches
         s.xLimitSwitch = Button(s.xSwitchPin)
         s.yLimitSwitch = Button(s.ySwitchPin)
+        
+        #Configure magPin as output
+        GPIO.setup(s.magPin, GPIO.OUT)
         
         #----- Calibration
         self.calibrate()
@@ -187,8 +193,29 @@ class realBoard():
                 GPIO.output(s.STEP_1, GPIO.LOW)
                 sleep(s.motDelay)
         elif abs(lSteps) != abs(rSteps):
-            #Check if both have the same number of steps before simultaneous move
-            raise InvalidMoveError(f"The function 'moveGantry' can only perform moves along the cartesian x or y directions, or along diagonals. The move ({delx, dely}) is invalid.")
+            #If unequal step dimensions, move sequentially. 
+            #Move the left motor first
+            for step in range(abs(lSteps)):
+                GPIO.output(s.STEP_1, GPIO.HIGH)
+                sleep(s.motDelay)
+                GPIO.output(s.STEP_1, GPIO.LOW)
+                sleep(s.motDelay)
+            #Then right motor second
+            for step in range(abs(rSteps)):
+                    GPIO.output(s.STEP_2, GPIO.HIGH)
+                    sleep(s.motDelay)
+                    GPIO.output(s.STEP_2, GPIO.LOW)
+                    sleep(s.motDelay)
+            
+                
+                #Old error catcher:
+            #raise NameError(f"Invalid Move: the function 'moveGantry' can only perform \
+            #                moves along the cartesian x or y directions, or along diagonals. \
+            #                Data: \
+            #                    currentX = {s.currentX} inches \
+            #                    currentY = {s.currentY} inches \
+            #                    Attempted to move {lSteps} steps left and \
+            #                                      {rSteps} steps right.")
             return None
         else:
             #Make simultaneous move
@@ -250,26 +277,27 @@ class realBoard():
         b4 = newY > s.yLoBound
         if b1 and b2 and b3 and b4:
             #Move gantry
-            xStepsCoreXY = delx*np.sqrt(2)*s.stepsPerInch
-            yStepsCoreXY = dely*np.sqrt(2)*s.stepsPerInch
+            xStepsCoreXY = delx*s.stepsPerInch#*np.sqrt(2)
+            yStepsCoreXY = dely*s.stepsPerInch#*np.sqrt(2)
             move = s.coreXY((xStepsCoreXY, yStepsCoreXY))
+            print(move)
             s.moveSteps(move)
 
             #Update gantry location
             s.currentX = newX
             s.currentY = newY
         else:
-            raise BoundaryError(f"""Attempted to move outside of boundary. Data:
+            raise RuntimeError(f"""Attempted to move outside of boundary. Data:
             current X = {s.currentX}
             current Y = {s.currentY}
             Attempted delX = {delx}
             Attempted delY = {dely}""")
 
     def turnMagnetOn(self):
-        GPIO.output(s.magPin, GPIO.HIGH)
+        GPIO.output(self.magPin, GPIO.HIGH)
 
     def turnMagnetOff(self):
-        GPIO.output(s.magPin, GPIO.HIGH)
+        GPIO.output(self.magPin, GPIO.LOW)
     
     def getSquareCoords(self, square):
         """
@@ -288,37 +316,84 @@ class realBoard():
 
         x = (col  + 0.5)*self.squareSize + self.xOrigin #inches
         y = (rank + 0.5)*self.squareSize + self.yOrigin #inches
-        return (int(x), int(y))
+        print(f"getSquareCoords({square}) = {(x, y)}") #DDEBUGGING
+        return (x, y)
 
     def moveToSquare(self, square):
         """
         Moves the gantry to the inputted square (0-63)
         """
-        self = s
+        s = self
         coords = s.getSquareCoords(square)
 
         delx = coords[0] - s.currentX
         dely = coords[1] - s.currentY
         deltas = (delx, dely)
+        print(f"moveToSquare deltas = {deltas}") #DEBUGGING
+        print(f"CurrentX = {s.currentX}, currentY = {s.currentY}")
         s.moveInches(deltas)
+        print(f"Successfully moved to square {square}")
 
-    def movePiece(self, startSquare, endSquare, isCapture, capturedPiece):
+    def movePiece(self, startSquare, endSquare, movingPiece, isCapture, capturedPiece):
         """
         Moves a piece based off the following inputs: 
             startSquare    = starting square (0-63)
             endSquare      = ending square   (0-63)
+            movingPiece    = symbol of the piece that's being moved
             isCapture      = notes that the move involves capturing a piece
             capturedPiece  = which piece was captured, for correct storage in the piece bank
         """
-        #if isCapture:
-        #    s.movePiece(endSquare,
-        # Need to create piece bank
         s = self
-        # Move to starting square
-        s.moveToSquare(startSquare)
-        # Turn on electromagnet
-        s.turnMagnetOn()
-        # Move to end square
-        s.moveToSquare(endSquare)
-        # Turn off electromagnet
-        s.turnMagnetOff()
+        
+        #PIECE BANK: negative indices are white's piece bank off to the left. 
+        # indices greater than 63 are black's piece bank off to the right. 
+        
+        if isCapture:
+            #s.movePiece(endSquare, #PIECEBANK#, "x", False, capturedPiece)
+            pass
+        else:
+        
+            # Move to starting square
+            s.moveToSquare(startSquare)
+            sleep(0.15)
+            
+            #To keep the magnet on while moving the gantry, we use threading:
+            pieceIsMoving = True
+            try:
+                while pieceIsMoving:
+                    magnet_thread = threading.Thread(target=s.turnMagnetOn())
+                    magnet_thread.start()
+                    
+                    if movingPiece.lower() == "n":
+                        #Knight routine
+                        coords = s.getSquareCoords(endSquare)
+                        delx = coords[0] - s.currentX
+                        dely = coords[1] - s.currentY 
+                        if delx>dely:
+                            #move 1/2 square y
+                            s.moveInches((0, dely/2))
+                            #move delx
+                            s.moveInches((delx, 0))
+                            #move 1/2 square y
+                            s.moveInches((0,dely/2))
+                            
+                        elif dely>delx:
+                            #move 1.2 square x
+                            s.moveInches((delx/2,0))
+                            #move dely
+                            s.moveInches((0,dely))
+                            #move 1.2 squre x
+                            s.moveInches((delx/2,0))
+                        else:
+                            raise RuntimeError("Knight movement error")
+                            
+                    else: 
+                        s.moveToSquare(endSquare)
+                    
+                    pieceIsMoving = False
+                    magnet_thread.join()
+                    s.turnMagnetOff()
+            except KeyboardInterrupt:
+                s.turnMagnetOff()
+                print("Movement aborted")
+                GPIO.cleanup()
